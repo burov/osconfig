@@ -344,8 +344,9 @@ func (c *configTask) cleanupRepos(ctx context.Context) {
 }
 
 func (c *configTask) cleanup(ctx context.Context) {
-	// Purge repositories that are no longer managed.
-	c.cleanupRepos(ctx)
+	// Skip repo clean-up, as there is no clear way how to find full list of repos,
+	// Repos might be distributed across many many tasks and there is no source of truth.
+	//c.cleanupRepos(ctx)
 
 	// Cleanup any policy specific resources.
 	for _, osPolicy := range c.Task.GetOsPolicies() {
