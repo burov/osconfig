@@ -320,33 +320,19 @@ func runServiceLoop(ctx context.Context) {
 
 func main() {
 	flag.Parse()
-	ctx, cncl := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	ctx = clog.WithLabels(ctx, map[string]string{"agent_version": agentconfig.Version()})
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
-	go func() {
-		select {
-		case <-c:
-			cncl()
-		}
-	}()
 
-	if *profile {
-		go func() {
-			fmt.Println(http.ListenAndServe("localhost:6060", nil))
-		}()
-	}
+	handleSystemSignals(ctx, cancel)
+
+	startProfileServerIfEnabled(ctx)
 
 	switch action := flag.Arg(0); action {
 	// wuaupdates just runs the packages.WUAUpdates function and returns it's output
 	// as JSON on stdout. This avoids memory issues with the WUA api since this is
 	// called often for Windows inventory runs.
 	case "wuaupdates":
-		if err := wuaUpdates(flag.Arg(1)); err != nil {
-			fmt.Fprint(os.Stderr, err)
-			os.Exit(1)
-		}
-		os.Exit(0)
+		fetchWuaUpdatesAndExit(ctx, flag.Arg(1))
 	case "", "run":
 		runService(ctx)
 	default:
@@ -356,4 +342,34 @@ func main() {
 	for _, f := range deferredFuncs {
 		f()
 	}
+}
+
+func handleSystemSignals(ctx context.Context, cancel context.CancelFunc) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		select {
+		case <-c:
+			cancel()
+		}
+	}()
+}
+
+func startProfileServerIfEnabled(ctx context.Context) {
+	if *profile {
+		go func() {
+			if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+				clog.Errorf(ctx, "error in process of running profile server, err - %v", err)
+			}
+		}()
+	}
+}
+
+func fetchWuaUpdatesAndExit(ctx context.Context, arg string) {
+	if err := wuaUpdates(arg); err != nil {
+		clog.Errorf(ctx, "unable to get wua updates, err - %v", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+
 }
