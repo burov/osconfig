@@ -263,6 +263,15 @@ func runInternalPeriodics(ctx context.Context) {
 	}
 }
 
+func initializeInventoryReportingTaskQueue(ctx context.Context) (*tasker.TaskQueue) {
+	tq := tasker.NewTaskQueue()
+	go tq.Loop(ctx)
+
+
+	return tq
+
+}
+
 func runServiceLoop(ctx context.Context) {
 	go runInternalPeriodics(ctx)
 
@@ -279,6 +288,8 @@ func runServiceLoop(ctx context.Context) {
 	// First inventory run will be somewhere between 3 and 5 min.
 	firstInventory := time.After(time.Duration(rand.Intn(120)+180) * time.Second)
 	ranFirstInventory := false
+
+	inventoryReportingTaskQueue := initializeInventoryReportingTaskQueue(ctx)
 	for {
 		if agentconfig.GuestPoliciesEnabled() {
 			policies.Run(ctx)
@@ -298,8 +309,9 @@ func runServiceLoop(ctx context.Context) {
 				ranFirstInventory = true
 			}
 
+
 			// This should always run after ospackage.SetConfig.
-			tasker.Enqueue(ctx, "Report OSInventory", func() {
+			inventoryReportingTaskQueue.Enqueue(ctx, "Report OSInventory", func() {
 				client, err := agentendpoint.NewClient(ctx)
 				if err != nil {
 					logger.Errorf(err.Error())
