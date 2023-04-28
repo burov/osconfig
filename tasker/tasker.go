@@ -25,57 +25,73 @@ import (
 )
 
 var (
-	tc chan *task
-	wg sync.WaitGroup
-	mx sync.Mutex
+	once sync.Once
+	tq = NewTaskQueue()
 )
-
-func initTasker(ctx context.Context) {
-	tc = make(chan *task)
-	go tasker(ctx)
-}
 
 type task struct {
 	run  func()
 	name string
 }
 
+type TaskQueue struct {
+	tc chan *task
+	wg sync.WaitGroup
+	mx sync.Mutex
+}
+
+func NewTaskQueue() *TaskQueue {
+	q := &TaskQueue{
+		tc:  make(chan *task),
+	}
+
+	return q
+}
+
+func (tq *TaskQueue) Loop(ctx context.Context) {
+	tq.wg.Add(1)
+	defer tq.wg.Done()
+
+	for t := range tq.tc {
+		clog.Debugf(ctx, "Tasker running %q.", t.name)
+		t.run()
+		clog.Debugf(ctx, "Finished task %q.", t.name)
+		if agentconfig.FreeOSMemory() {
+			debug.FreeOSMemory()
+		}
+		clog.Debugf(ctx, "Waiting for tasks to run.")
+	}
+}
+
+// Enqueue adds a task to the task queue.
+// Calls to Enqueue after a Close will block.
+func (tq *TaskQueue) Enqueue(ctx context.Context, name string, f func()) {
+	tq.mx.Lock()
+	tq.tc <- &task{name: name, run: f}
+	tq.mx.Unlock()
+}
+
+// Close prevents any further tasks from being enqueued and waits for the queue to empty.
+// Subsequent calls to Close() will block.
+func (tq *TaskQueue) Close() {
+	tq.mx.Lock()
+	close(tq.tc)
+	tq.wg.Wait()
+}
+
+
 // Enqueue adds a task to the task queue.
 // Calls to Enqueue after a Close will block.
 func Enqueue(ctx context.Context, name string, f func()) {
-	mx.Lock()
-	if tc == nil {
-		initTasker(ctx)
-	}
-	tc <- &task{name: name, run: f}
-	mx.Unlock()
+	once.Do(func() {
+		go tq.Loop(ctx)
+	})
+
+	tq.Enqueue(ctx, name, f)
 }
 
 // Close prevents any further tasks from being enqueued and waits for the queue to empty.
 // Subsequent calls to Close() will block.
 func Close() {
-	mx.Lock()
-	close(tc)
-	wg.Wait()
-}
-
-func tasker(ctx context.Context) {
-	wg.Add(1)
-	defer wg.Done()
-	for {
-		clog.Debugf(ctx, "Waiting for tasks to run.")
-		select {
-		case t, ok := <-tc:
-			// Indicates an empty and closed channel.
-			if !ok {
-				return
-			}
-			clog.Debugf(ctx, "Tasker running %q.", t.name)
-			t.run()
-			clog.Debugf(ctx, "Finished task %q.", t.name)
-			if agentconfig.FreeOSMemory() {
-				debug.FreeOSMemory()
-			}
-		}
-	}
+	tq.Close()
 }
