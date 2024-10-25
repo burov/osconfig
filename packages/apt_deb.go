@@ -25,6 +25,8 @@ import (
 	"strings"
 
 	"github.com/GoogleCloudPlatform/osconfig/clog"
+	"github.com/GoogleCloudPlatform/osconfig/extractors"
+	"github.com/GoogleCloudPlatform/osconfig/extractors/factory"
 	"github.com/GoogleCloudPlatform/osconfig/osinfo"
 	"github.com/GoogleCloudPlatform/osconfig/util"
 )
@@ -353,12 +355,63 @@ func AptUpdate(ctx context.Context) ([]byte, error) {
 
 // InstalledDebPackages queries for all installed deb packages.
 func InstalledDebPackages(ctx context.Context) ([]*PkgInfo, error) {
+	legacyExtractor, err := installedDebPackagesLegacy(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	modernExtractor, err := installedDebPackagesModernExtractor(ctx)
+	if err == nil {
+		report := compareExtractedPackages(legacyExtractor, modernExtractor)
+		printComparisonResult(ctx, report)
+	} else {
+		clog.Errorf(ctx, "unable to extract packages from new extractor, err - %v", err)
+	}
+
+	return legacyExtractor, nil
+}
+
+func installedDebPackagesModernExtractor(ctx context.Context) ([]*PkgInfo, error) {
+	extractor := factory.GetExtractor()
+
+	inventories, err := extractor.ExtractInventory(ctx, extractors.DpkgSource)
+	if err != nil {
+		return nil, err
+	}
+
+	return toPkgInfos(inventories), nil
+}
+
+func installedDebPackagesLegacy(ctx context.Context) ([]*PkgInfo, error) {
 	out, err := run(ctx, dpkgQuery, dpkgQueryArgs)
 	if err != nil {
 		return nil, err
 	}
 
 	return parseInstalledDebPackages(ctx, out), nil
+
+}
+
+func toPkgInfos(inventories []extractors.Inventory) []*PkgInfo {
+	results := make([]*PkgInfo, 0, len(inventories))
+
+	for _, inv := range inventories {
+		results = append(results, pkgInfoFromExtractorInventory(inv))
+	}
+	return results
+}
+
+func pkgInfoFromExtractorInventory(inventory extractors.Inventory) *PkgInfo {
+	return &PkgInfo{
+		Name:    inventory.Name,
+		Arch:    osinfo.Architecture(inventory.RawArch),
+		RawArch: inventory.RawArch,
+
+		Source: Source{
+			Name:    inventory.Source.Name,
+			Version: inventory.Source.Version,
+		},
+	}
 }
 
 func parseInstalledDebPackages(ctx context.Context, data []byte) []*PkgInfo {

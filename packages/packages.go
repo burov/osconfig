@@ -91,6 +91,17 @@ type Source struct {
 	Name, Version string
 }
 
+func (pkg *PkgInfo) key() string {
+	return fmt.Sprintf(
+		"%s-%s-%s-%s-%s-%s",
+		pkg.Name,
+		pkg.Version,
+		pkg.Arch,
+		pkg.RawArch,
+		pkg.Source.Name,
+		pkg.Source.Version)
+}
+
 func (i *PkgInfo) String() string {
 	return fmt.Sprintf("%s %s %s", i.Name, i.Arch, i.Version)
 }
