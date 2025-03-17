@@ -10,6 +10,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func init() {
+	currentSleeper = noOpSleeper{} // Avoid calling time.Sleep to speed up tests
+}
+
 func TestRetrySleep(t *testing.T) {
 	tests := []struct {
 		base               int
@@ -83,8 +87,6 @@ func TestRetryFunc(t *testing.T) {
 			funcCalledUpperBound: 5,
 		},
 	}
-
-	currentSleeper = noOpSleeper{} // Avoid calling time.Sleep to speed up tests
 
 	description := "test"
 	ctx := context.Background()
@@ -170,8 +172,6 @@ func TestRetryAPICall(t *testing.T) {
 			funcCalledUpperBound: 4,
 		},
 	}
-
-	currentSleeper = noOpSleeper{} // Avoid calling time.Sleep to speed up tests
 
 	description := "test"
 	ctx := context.Background()

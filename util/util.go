@@ -34,15 +34,6 @@ import (
 	"github.com/GoogleCloudPlatform/osconfig/clog"
 )
 
-// Logger holds log functions.
-type Logger struct {
-	Debugf   func(string, ...any)
-	Infof    func(string, ...any)
-	Warningf func(string, ...any)
-	Errorf   func(string, ...any)
-	Fatalf   func(string, ...any)
-}
-
 // SanitizePath ensures that relative path does not contains ".." to avoid directory traversal attacks.
 // As well run filepath.Clean to remove redundant path segments.
 func SanitizePath(path string) string {
@@ -55,6 +46,10 @@ func SanitizePath(path string) string {
 // https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247(v=vs.85).aspx#maxpath
 // when not running on windows it will just return the input path.
 func NormPath(path string) (string, error) {
+	return normPath(path, runtime.GOOS)
+}
+
+func normPath(path string, os string) (string, error) {
 	if strings.HasPrefix(path, `\\?\`) {
 		return path, nil
 	}
@@ -64,11 +59,12 @@ func NormPath(path string) (string, error) {
 		return "", err
 	}
 
-	if runtime.GOOS != "windows" {
+	if os != "windows" {
 		return path, nil
 	}
 
 	return `\\?\` + strings.ReplaceAll(path, "/", `\`), nil
+
 }
 
 // Exists check for the existence of a file
@@ -133,10 +129,13 @@ type DefaultRunner struct{}
 // Run takes precreated exec.Cmd and returns the stdout and stderr.
 func (r *DefaultRunner) Run(ctx context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
 	clog.Debugf(ctx, "Running %q with args %q\n", cmd.Path, cmd.Args[1:])
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
 	err := cmd.Run()
+
 	clog.DebugStructured(
 		ctx,
 		struct {
@@ -153,6 +152,7 @@ func (r *DefaultRunner) Run(ctx context.Context, cmd *exec.Cmd) ([]byte, []byte,
 			Stderr:   stderr.String(),
 		},
 		"%s %q exit code: %d, output:\n%s", cmd.Path, cmd.Args[1:], cmd.ProcessState.ExitCode(), strings.ReplaceAll(stdout.String(), "\n", "\n "))
+
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
@@ -192,4 +192,14 @@ func AtomicWrite(path string, content []byte, mode os.FileMode) (err error) {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+// SafeErrorString will return string representation of the error.
+// It returns value of err.Error() or <nil> if err is nil.
+func SafeErrorString(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+
+	return err.Error()
 }
